@@ -1,0 +1,44 @@
+###
+## JAVA IMPLEMENTATION OF ABSTRACT FUNCTIONS
+##
+## The below functions are "declared" abstract by the main daemon script, and are implemented here with the java-specific
+## commands that are required to bootstrap / monitor a JVM.
+##
+#
+
+buildClasspath() {
+    cd ${DIR_BASE} && find `basename ${DIR_LIB}` -type f | tr '\n' "${CLASSPATH_DELIM}"
+}
+
+forkApplication() {
+
+    CLASSPATH="${CLASSPATH_FROM_CONFIG}${CLASSPATH_DELIM}`buildClasspath`"
+    export CLASSPATH
+
+    COMMAND="nohup ${APP_JAVA_HOME}/bin/java ${APP_JVM_ARGS} ${APP_MAINMETHOD} ${APP_CLI_ARGS} &> ${FILE_NOHUP_LOG} &"
+
+    # TODO: Log out classpath and command
+    eval "${COMMAND}"
+    echo "$!"
+}
+
+# Runs application in foreground
+runApplication() {
+    CLASSPATH="${CLASSPATH_FROM_CONFIG}${CLASSPATH_DELIM}`buildClasspath`"
+    export CLASSPATH
+
+    COMMAND="${APP_JAVA_HOME}/bin/java ${APP_JVM_ARGS} ${APP_MAINMETHOD} ${APP_CLI_ARGS}"
+    eval "${COMMAND}"
+    echo "$!"
+}
+
+listPids() {
+    echo "`${APP_JAVA_HOME}/bin/jps | cut -d ' ' -f 1`"
+}
+
+sanityCheckApp() {
+    if [[ ! -d ${APP_JAVA_HOME} ]]; then 
+        showError "Invalid Java Home" "The application setting ${txtylw}APP_JAVA_HOME${txtrst} is invalid: ${txtpur}${APP_JAVA_HOME}${txtrst}"
+        exit -1;
+    fi
+}

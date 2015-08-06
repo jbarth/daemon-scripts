@@ -1,0 +1,286 @@
+#! /bin/bash
+DIRNAME=`dirname $0`
+SCRIPTNAME=`basename $0`
+
+source ${DIRNAME}/common/common.sh
+
+# We know this script will live in a "bin" subdirectory. Therefore, the base directory is one further up.
+# Note that we use readlink to resolve relative paths
+DIR_BASE=`readlink -f ${DIRNAME}/../`
+
+APP_CONFIG_FILE="${DIRNAME}/app-config.sh"
+# Define the application variables, expected to be overridden in the app_config.sh file
+APP_NAME="";
+APP_MAINMETHOD=""
+APP_JAVA_HOME="";
+APP_JVM_ARGS="";
+APP_CLI_ARGS="";
+APP_EXECUTABLE="";
+
+# The supported commands - Manually maintained, should match switch
+SUPPORTED_COMMANDS="${txtpur}start|stop|restart|status|thread-dump${txtrst}"
+
+# The delay (in seconds) to wait for an application to come-up, before we check the PID to ensure it's
+# still running.
+STARTUP_CHECK_DEALY="2"
+
+STATE_RUNNING="STATE_RUNNING";
+STATE_STALE="STATE_STALE";
+STATE_STOPPED="STATE_STOPPED";
+STATE_UNKNOWN="STATE_UNKNOWN";
+
+## Constants for platform-specifics
+CLASSPATH_DELIM=":"
+
+IS_CYGWIN=false
+if [[ -d /cygdrive ]]; then
+    showWarn "Cygwin detected, switching to compatibility mode"
+    IS_CYGWIN=true
+    CLASSPATH_DELIM=";"
+
+    DIR_BASE="${DIRNAME}/../"
+fi
+
+DIR_BIN="${DIR_BASE}/bin"
+DIR_VAR="${DIR_BASE}/var"
+DIR_LOGS="${DIR_BASE}/logs"
+DIR_LIB="${DIR_BASE}/lib"
+
+FILE_PID="${DIR_VAR}/pid"
+FILE_NOHUP_LOG="`basename ${DIR_LOGS}`/nohup.log"
+
+## ARG 1: Command, e.g. start/stop/status
+COMMAND=$1
+
+## Source the application config
+source ${APP_CONFIG_FILE}
+
+## Source the implementation of "abstract" functions for the appropriate application type
+APP_TYPE_COMMANDS="${DIRNAME}/daemon-${APP_TYPE}"
+source ${APP_TYPE_COMMANDS}
+checkExitCode "Application Type Implementation" "Could not source ${txtylw}${APP_TYPE_COMMANDS}${txtrst} with application-type functions"
+
+usage() {
+    echo -e "Usage: ${SCRIPTNAME} [${SUPPORTED_COMMANDS}]";
+}
+
+if [[ -z ${COMMAND} ]]; then
+    showError "Missing Parameter" "Command not specified. `usage`";
+    exit -1;
+fi
+
+getCurrentPid() {
+    if [[ -f ${FILE_PID} ]]; then
+        cat ${FILE_PID};
+        return;
+    fi
+    echo "-1";
+}
+
+
+##
+ # List the pids that are running under this user which may be the running instance of this applciation. This could
+ # be a list of all the PIDs for this user, or something with more specific filtering (JPS for java?)
+ #
+ # ABSTRACT: listPids()
+ #/
+
+getAppState() {
+    CURRENT_PID=`getCurrentPid`
+
+    # If the application is currently running
+    if [[ ${CURRENT_PID} != "-1" ]]; then
+        # Check that the pid is actually a java process
+        JAVA_PROCESSES=`listPids`
+
+        if [[ `echo "${JAVA_PROCESSES}" | grep "^${CURRENT_PID}$"` ]]; then
+            echo "${STATE_RUNNING}"
+            return;
+        else 
+            echo "${STATE_STALE}"
+            return;
+        fi
+    else
+        echo "${STATE_STOPPED}";
+        return;
+    fi
+
+    return "${STATE_UNKNOWN}";
+}
+
+isAppRunning() {
+    if [[ `getAppState` == ${STATE_RUNNING} ]]; then
+        echo "1";
+    else
+        echo "0";
+    fi
+}
+
+##
+ # Perform the application-specific operation to fork the appropriate OS process. For Java this will
+ # involve building-up a CLASSPATH and then invoking ${JAVA_HOME}/bin/java. For wrapped applications 
+ # it will simply invoke the script.
+ #
+ # This function is expected to echo the PID of the process it starts
+ #
+ # ABSTRACT: forkApplication()
+ #/
+
+startApplication() {
+    # Change into base directory, so any relative paths in the app work!
+    pushd ${DIR_BASE} > /dev/null
+
+    NEW_PID=`forkApplication`
+
+    # CYGWIN: Map to Windows OS PID, which is what JPS will show us
+    if [[ "${IS_CYGWIN}" = true ]]; then
+        NEW_PID=`ps -p ${NEW_PID} | gawk -e '/^[[:space:]]+[[:digit:]+]/{print $4}'`
+    fi
+
+    popd > /dev/null
+
+    showInfo "Application started, spawned Process ID is ${txtylw}${NEW_PID}${txtrst}"
+    echo "${NEW_PID}" > ${FILE_PID}
+    checkExitCode "Writing PID to File" "Could not write PID ${txtpur}${NEW_PID}${txtrst} to file ${txtylw}${FILE_PID}${txtrst}"
+
+    # Sleep for a sec or two to see if the application starts-up
+    sleep ${STARTUP_CHECK_DEALY}
+
+    if [[ `isAppRunning` == "0" ]]; then
+        showWarn "Application is not running! Waited ${txtpur}${STARTUP_CHECK_DEALY}${txtrst} and checked PID."
+    fi
+}
+
+stopApplication() {
+    CURRENT_PID=`getCurrentPid`
+    TRY_KILL_AGAIN="true"
+    SLEEP_BETWEEN_TRIES=1
+    MAX_TRIES=$((${SLEEP_BETWEEN_TRIES} * 5))
+
+    ATTEMPTS=0
+
+    while [[ `isAppRunning` -eq 1 ]] && [[ ${TRY_KILL_AGAIN} == "true" ]]
+    do
+        if [[ "${IS_CYGWIN}" = true ]]; then
+            taskkill /F /PID ${CURRENT_PID}
+        else 
+            kill ${CURRENT_PID}
+        fi
+        checkExitCode "Unable to kill the process. Not attempting again..."
+        sleep ${SLEEP_BETWEEN_TRIES}
+
+        ATTEMPTS=$((${ATTEMPTS} + 1))
+
+        if [[ ${ATTEMPTS} -eq ${MAX_TRIES} ]]
+        then
+            TRY_KILL_AGAIN="false"
+        fi
+    done
+
+    if [[ `isAppRunning` -eq 1 ]]; then
+        showError "Nice Kill Failed" "Attempting Kill -9."
+        kill -9 ${CURRENT_PID}
+        EXIT_CODE=$?
+
+        if [[ ${EXIT_CODE} != 0 ]]; then
+            showError "Forced Kill Failed" "Attempt to kill PID ${txtylw}${CURRENT_PID}${txtrst} failed with exit code ${txtpur}${CURRENT_PID}${txtrst}"
+        else
+            showWarn "Killed PID ${txtylw}${CURRENT_PID}${txtrst} using kill -9"
+            rm ${FILE_PID}
+        fi
+    else
+        showInfo "Successfully killed PID ${txtylw}${CURRENT_PID}${txtrst}"
+        rm ${FILE_PID}
+    fi
+}
+
+dumpThreads() {
+    CURRENT_PID=`getCurrentPid`
+
+    ${APP_JAVA_HOME}/bin/jstack ${CURRENT_PID}
+    EXIT_CODE=$?
+    if [[ ${EXIT_CODE} != 0 ]]; then 
+        showError "JStack Failed" "Attempt to thread-dump PID ${txtylw}${CURRENT_PID}${txtrst} failed with exit code ${txtpur}${CURRENT_PID}${txtrst}"
+    fi
+}
+
+##
+ # Perform sanity checks on application config, to make sure we have sufficient details to be able to bootstrap
+ #
+ # ABSTRACT: sanityCheckApp()
+ #/
+
+sanityCheckEnvironment() {
+    
+    sanityCheckApp
+
+    if [[ ! -d ${DIR_LOGS} ]]; then 
+        showInfo "Creating logs directory ${txtylw}${DIR_LOGS}${txtrst}"
+        mkdir -p ${DIR_LOGS}
+        checkExitCode "Creating Log Directory" "Could not create log directory ${txtylw}${DIR_LOGS}${txtrst}"
+    fi
+
+    if [[ ! -d ${DIR_VAR} ]]; then 
+        showInfo "Creating working directory ${txtylw}${DIR_VAR}${txtrst}"
+        mkdir -p ${DIR_VAR}
+        checkExitCode "Creating Working Directory" "Could not create working directory ${txtylw}${DIR_VAR}${txtrst}"
+    fi
+}
+
+# Make sure we run the sanity check beforehand
+sanityCheckEnvironment
+
+case ${COMMAND} in
+    start )
+        showInfo "Starting ${APP_NAME}...   "
+        RUNNING=isAppRunning
+        if [[ `isAppRunning` == "0" ]]; then
+            startApplication
+        else 
+            showError "Application Running" "Application ${txtylw}${APP_NAME}${txtrst} is already running."
+            exit -1;
+        fi
+        ;;
+    stop )
+        showInfo "Stopping ${APP_NAME}..."
+        if [[ `isAppRunning` == "1" ]]; then 
+            stopApplication
+        else
+            showInfo "Process is not running, no action taken."
+        fi
+        ;;
+    restart )
+        showInfo "Restarting ${APP_NAME}..."
+        if [[ `isAppRunning` == "1" ]]; then
+            stopApplication
+            startApplication
+        else
+            showInfo "Process is not running, no action taken - please run the start command."
+        fi
+        ;;
+    status )
+        STATUS=`getAppState`
+        CURRENT_PID=`getCurrentPid`
+        if [[ ${STATUS} == ${STATE_RUNNING} ]]; then
+            showInfo "Process is running under process ID ${txtpur}${CURRENT_PID}${txtrst}"
+        elif [[ ${STATUS} == ${STATE_STOPPED} ]]; then
+            showInfo "Process is not running"
+        elif [[ ${STATUS} == ${STATE_STALE} ]]; then
+            showInfo "Process is not running, but stale process ID ${txtpur}${CURRENT_PID}${txtrst} is tracked"
+        else
+            showError "Unknown State" "Application is in unknown state '${txtylw}${STATUS}${txtrst}'"
+        fi
+        ;;
+    thread-dump )
+        if [[ `isAppRunning` == "1" ]]; then 
+            dumpThreads
+        else 
+            showError "Application Stopped" "Application not running, cannot dump threads"
+            exit -1;
+        fi
+        ;;
+    *)
+        showError "Unknown Command" "Command ${txtylw}${COMMAND}${txtrst} not supported. `usage`"
+        exit -1;
+    ;;
+esac

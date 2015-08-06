@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <parent>
+        <artifactId>daemon-parent</artifactId>
+        <groupId>scripts</groupId>
+        <version>1.0.0-SNAPSHOT</version>
+
+		<relativePath>../daemon-parent/pom.xml</relativePath>
+	</parent>
+
+	<artifactId>daemon-maven-plugin</artifactId>
+
+	<name>Scripts - Daemon Maven Plugin</name>
+	<description>A Maven plugin that allows us to generate different daemon scripts at compile
+        time, such that we may produce a single packaged zip file that contains a fully operational
+        server application.</description>
+
+	<modelVersion>4.0.0</modelVersion>
+	<packaging>maven-plugin</packaging>
+
+	<properties>
+		<src.resources.generated>src/generated/resources</src.resources.generated>
+		<src.resources.scripts>${src.resources.generated}/scripts-bundled</src.resources.scripts>
+	</properties>
+
+
+	<dependencies>
+		<!--  Source code (shell script) for daemon -->
+		<dependency>
+			<groupId>${project.parent.groupId}</groupId>
+			<artifactId>daemon-common</artifactId>
+			<version>${project.parent.version}</version>
+
+			<classifier>scripts</classifier>
+			<type>zip</type>
+		</dependency>
+
+		<!-- Maven plugin infrastructure -->
+		<dependency>
+			<groupId>org.apache.maven</groupId>
+			<artifactId>maven-artifact</artifactId>
+			<version>3.1.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.maven.plugin-tools</groupId>
+			<artifactId>maven-plugin-annotations</artifactId>
+			<version>3.2</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.maven</groupId>
+			<artifactId>maven-core</artifactId>
+			<version>3.2.5</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.maven</groupId>
+			<artifactId>maven-compat</artifactId>
+			<version>3.1.1</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.codehaus.plexus</groupId>
+			<artifactId>plexus-archiver</artifactId>
+			<version>2.4.4</version>
+		</dependency>
+
+
+		<!--  Test Dependencies -->
+		<dependency>
+			<groupId>org.apache.maven.plugin-testing</groupId>
+			<artifactId>maven-plugin-testing-harness</artifactId>
+			<version>3.3.0</version>
+
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Other External Dependencies -->
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-lang3</artifactId>
+			<version>3.3.2</version>
+		</dependency>
+
+	</dependencies>
+
+
+	<build>
+		<resources>
+			<resource>
+				<directory>${src.resources.generated}</directory>
+			</resource>
+		</resources>
+
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-dependency-plugin</artifactId>
+				<version>2.3</version>
+				<executions>
+					<execution>
+						<id>copy-all-config-zip</id>
+						<phase>generate-resources</phase>
+						<goals>
+							<goal>copy</goal>
+						</goals>
+						<configuration>
+							<artifactItems>
+								<artifactItem>
+									<groupId>${project.parent.groupId}</groupId>
+									<artifactId>daemon-common</artifactId>
+									<version>${project.parent.version}</version>
+									<classifier>scripts</classifier>
+									<type>zip</type>
+									<outputDirectory>${src.resources.scripts}</outputDirectory>
+									<destFileName>common-scripts.zip</destFileName>
+								</artifactItem>
+							</artifactItems>
+						</configuration>
+					</execution>
+
+					<execution>
+						<id>unpack</id>
+						<phase>generate-resources</phase>
+						<goals>
+							<goal>unpack</goal>
+						</goals>
+						<configuration>
+							<artifactItems>
+								<artifactItem>
+									<groupId>${project.parent.groupId}</groupId>
+									<artifactId>daemon-scripts</artifactId>
+									<version>${project.parent.version}</version>
+									<classifier>scripts</classifier>
+									<type>zip</type>
+									<outputDirectory>${src.resources.scripts}</outputDirectory>
+								</artifactItem>
+							</artifactItems>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-plugin-plugin</artifactId>
+				<version>3.0</version>
+				<configuration>
+					<goalPrefix>daemon</goalPrefix>
+				</configuration>
+				<executions>
+					<execution>
+						<id>default-descriptor</id>
+						<goals>
+							<goal>descriptor</goal>
+						</goals>
+						<phase>process-classes</phase>
+					</execution>
+					<execution>
+						<id>help-descriptor</id>
+						<goals>
+							<goal>helpmojo</goal>
+						</goals>
+						<phase>process-classes</phase>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
+</project>

@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <parent>
+        <artifactId>daemon-parent</artifactId>
+        <groupId>scripts</groupId>
+        <version>1.0.0-SNAPSHOT</version>
+
+        <relativePath>../daemon-parent/pom.xml</relativePath>
+    </parent>
+
+    <name>Daemon Scripts - Common / Utility Scripts</name>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>daemon-common</artifactId>
+
+    <!-- POM for now - will add zip artifact during build -->
+    <packaging>pom</packaging>
+
+    <properties>
+        <dir.src.scripts>src/main/scripts</dir.src.scripts>
+        <dir.build.scripts>${project.build.directory}/scripts</dir.build.scripts>
+    </properties>
+
+    <build>
+
+        <plugins>
+            <plugin>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>2.6</version>
+                <executions>
+                    <execution>
+                        <id>copy-resources</id>
+                        <!-- here the phase you need -->
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                        <outputDirectory>${dir.build.scripts}</outputDirectory>
+                        <resources>   
+                            <resource>
+                                <directory>${basedir}/${dir.src.scripts}</directory>
+                                <filtering>true</filtering>
+                            </resource>
+                        </resources>              
+                        </configuration>            
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Creating ZIP is part of normal build (rather than being in 'release-packaging' profile), as 
+                 it's the minimal artifact -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>2.3</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>${project.parent.groupId}</groupId>
+                        <artifactId>daemon-assemblies</artifactId>
+                        <version>${project.parent.version}</version>
+                    </dependency>
+                </dependencies>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <descriptorRefs>
+                        <descriptorRef>scripts</descriptorRef>
+                    </descriptorRefs>
+                </configuration>
+            </plugin>
+
+        </plugins>
+    </build>
+</project>

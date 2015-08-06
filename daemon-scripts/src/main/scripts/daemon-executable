@@ -1,0 +1,49 @@
+###
+## EXECUTABLE IMPLEMENTATION OF ABSTRACT FUNCTIONS
+##
+## The below functions are "declared" abstract by the main daemon script.
+##
+## The implementations in this file are capable of managing generic executables, either a native application or 
+## another shell script that would typically run in the foreground
+##
+#
+QUALIFIED_APP_EXEC="${DIRNAME}/${APP_EXECUTABLE}"
+
+buildClasspath() {
+    cd ${DIR_BASE} && find `basename ${DIR_LIB}` -type f | tr '\n' "${CLASSPATH_DELIM}"
+}
+
+forkApplication() {
+    COMMAND="nohup ${QUALIFIED_APP_EXEC} ${APP_CLI_ARGS} &> ${FILE_NOHUP_LOG} &"
+
+    # TODO: Log out classpath and command
+    eval "${COMMAND}"
+    echo "$!"
+}
+
+runApplication() {
+    COMMAND="${QUALIFIED_APP_EXEC} ${APP_CLI_ARGS}"
+
+    # TODO: Log out classpath and command
+    eval "${COMMAND}"
+    echo "$!"
+}
+
+###
+## We're going to have to return all possible PIDs from ps -ef, not  ideal! Let's hope we don't re-use a
+## stale PID!
+#
+listPids() {
+    if [[ "${IS_CYGWIN}" = true ]]; then
+        ps -W | gawk -e '/^[[:space:]]+[[:digit:]+]/{print $4}'
+    else
+        ps -fu `whoami` | gawk '{print $2}'
+    fi
+}
+
+sanityCheckApp() {
+    if [[ ! -f ${QUALIFIED_APP_EXEC} ]]; then 
+        showError "Invalid Application" "The application setting ${txtylw}APP_EXECUTABLE${txtrst} does not exist: ${txtpur}${QUALIFIED_APP_EXEC}${txtrst}"
+        exit -1;
+    fi
+}
